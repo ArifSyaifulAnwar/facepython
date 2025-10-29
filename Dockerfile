@@ -1,33 +1,46 @@
-# Gunakan image Python ringan sebagai base
-FROM python:3.11-slim
+# =========================
+# Face ID API - Cloud Run
+# Base: Python 3.10 (lebih kompatibel utk wheel ML)
+# =========================
+FROM python:3.10-slim
 
-# Set environment variable untuk cache InsightFace
-ENV INSIGHTFACE_HOME=/opt/insightface
+# Env dasar
+ENV INSIGHTFACE_HOME=/opt/insightface \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
 
-# Install dependency sistem untuk OpenCV, Pillow, dan InsightFace
+# Paket OS yang dibutuhkan:
+# - g++, build-essential : kompilasi ekstensi C/C++ saat install insightface
+# - libgl1, libglib2.0-0 : runtime OpenCV
+# - libgomp1            : OpenMP runtime (onnxruntime butuh ini)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgl1 libglib2.0-0 && \
+    g++ build-essential libgl1 libglib2.0-0 libgomp1 && \
     rm -rf /var/lib/apt/lists/*
 
-# Tentukan working directory di container
+# Folder kerja
 WORKDIR /app
 
-# Salin file requirements.txt dan install dependensi Python
+# Install deps Python lebih dulu (pakai wheel jika ada)
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN python -m pip install --upgrade pip && \
+    pip install --no-cache-dir --prefer-binary -r requirements.txt
 
-# Salin semua source code ke dalam container
+# Salin source code
 COPY . .
 
-# Environment variable default
-ENV HOST=0.0.0.0
-ENV PORT=8080
-ENV CTX_ID=-1
-ENV MODEL_NAME=buffalo_l
-ENV FACE_THRESH=0.33
-ENV DET_GATE=0.6
-ENV LIVE_GATE=0.5
+# Default ENV (bisa dioverride di Cloud Run)
+ENV HOST=0.0.0.0 \
+    PORT=8080 \
+    CTX_ID=-1 \
+    MODEL_NAME=buffalo_l \
+    FACE_THRESH=0.33 \
+    DET_GATE=0.6 \
+    LIVE_GATE=0.5
 
-# Gunakan Gunicorn (lebih stabil daripada flask dev server)
-# pro_faceid_api:app berarti file pro_faceid_api.py dan variabel Flask app
-CMD ["gunicorn", "-w", "2", "-k", "gthread", "-b", "0.0.0.0:8080", "pro_faceid_api:app"]
+# (opsional saja)
+EXPOSE 8080
+
+# Jalankan via Gunicorn (production)
+# pro_faceid_api:app = file pro_faceid_api.py mengekspor 'app'
+CMD ["gunicorn","-w","2","-k","gthread","-b","0.0.0.0:8080","pro_faceid_api:app"]
